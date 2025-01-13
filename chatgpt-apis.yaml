@@ -1,0 +1,1203 @@
+openapi: 3.0.3
+info:
+  title: Book2Movie - Public Book Suggestion Platform
+  description: |
+    A platform where users can suggest existing, already-published books for movie adaptation.
+    Directors, producers, or other professionals can browse and filter suggestions.
+    Includes optional endpoints for uploading original stories.
+  version: 1.0.0
+
+servers:
+  - url: https://api.book2movie.com/v1
+    description: Production Environment
+  - url: https://staging.book2movie.com/v1
+    description: Staging Environment
+
+tags:
+  - name: Auth
+    description: Authentication and authorization endpoints
+  - name: Users
+    description: Endpoints to manage user profiles, roles, etc.
+  - name: BookSuggestions
+    description: Endpoints related to creating, reading, updating, and deleting book suggestions
+  - name: Comments
+    description: Endpoints for adding and retrieving comments on suggestions
+  - name: Upvotes
+    description: Endpoints for upvoting/downvoting suggestions
+  - name: Notifications
+    description: Endpoints for user notifications
+  - name: KindleIntegration
+    description: Endpoint or webhook to handle external “Suggest for Movie” submissions
+  - name: OriginalStories
+    description: Endpoints for optional original story submissions
+  - name: Admin
+    description: Admin-level moderation and management
+
+paths:
+  ###################################################
+  # AUTHENTICATION & AUTHORIZATION
+  ###################################################
+  /auth/register:
+    post:
+      tags:
+        - Auth
+      summary: Register a new user
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRegistrationRequest'
+      responses:
+        '201':
+          description: User successfully registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Invalid registration data
+        '409':
+          description: User with given email already exists
+
+  /auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Login user and receive an access token
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserLoginRequest'
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+
+  /auth/logout:
+    post:
+      tags:
+        - Auth
+      summary: Logout user (invalidate tokens)
+      operationId: logoutUser
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Successfully logged out
+        '401':
+          description: Unauthorized or invalid token
+
+  /auth/refresh:
+    post:
+      tags:
+        - Auth
+      summary: Refresh access token using a refresh token
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken:
+                  type: string
+                  example: 'eyJhbGciOiJIUzI1NiIsInR5cCI...'
+      responses:
+        '200':
+          description: New access token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid or expired refresh token
+
+  ###################################################
+  # USER PROFILES
+  ###################################################
+  /users:
+    get:
+      tags:
+        - Users
+      summary: List all users (admin only)
+      operationId: listUsers
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: role
+          schema:
+            type: string
+            enum: [reader, director, admin]
+          description: Filter by role
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '403':
+          description: Forbidden (only admins can access)
+
+    post:
+      tags:
+        - Users
+      summary: [Optional] Create a user (admin-only if used)
+      operationId: createUser
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+      responses:
+        '201':
+          description: User created
+        '403':
+          description: Forbidden (only admins can access)
+
+  /users/{userId}:
+    get:
+      tags:
+        - Users
+      summary: Retrieve a specific user profile (admin or the user themself)
+      operationId: getUserProfile
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User profile data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '403':
+          description: Forbidden
+        '404':
+          description: User not found
+
+    put:
+      tags:
+        - Users
+      summary: Update a user profile (admin or user themself)
+      operationId: updateUserProfile
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdateRequest'
+      responses:
+        '200':
+          description: Updated user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '403':
+          description: Forbidden
+        '404':
+          description: User not found
+
+    delete:
+      tags:
+        - Admin
+      summary: Delete a user (admin only)
+      operationId: deleteUser
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: User deleted
+        '403':
+          description: Forbidden
+        '404':
+          description: User not found
+
+  ###################################################
+  # BOOK SUGGESTIONS
+  ###################################################
+  /book-suggestions:
+    get:
+      tags:
+        - BookSuggestions
+      summary: Retrieve all book suggestions
+      operationId: listBookSuggestions
+      parameters:
+        - in: query
+          name: genre
+          schema:
+            type: string
+          description: Filter by genre
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [upvotes, date]
+          description: Sort results by upvote count or submission date
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: Search by book title or author
+      responses:
+        '200':
+          description: A list of book suggestions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BookSuggestion'
+
+    post:
+      tags:
+        - BookSuggestions
+      summary: Create a new book suggestion
+      operationId: createBookSuggestion
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookSuggestionCreateRequest'
+      responses:
+        '201':
+          description: Suggestion created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookSuggestion'
+        '400':
+          description: Invalid request data
+
+  /book-suggestions/{suggestionId}:
+    get:
+      tags:
+        - BookSuggestions
+      summary: Get details of a specific book suggestion
+      operationId: getBookSuggestion
+      parameters:
+        - in: path
+          name: suggestionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Book suggestion details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookSuggestion'
+        '404':
+          description: Suggestion not found
+
+    put:
+      tags:
+        - BookSuggestions
+      summary: Update an existing suggestion (owner or admin)
+      operationId: updateBookSuggestion
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: suggestionId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookSuggestionUpdateRequest'
+      responses:
+        '200':
+          description: Updated suggestion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookSuggestion'
+        '403':
+          description: Forbidden
+        '404':
+          description: Suggestion not found
+
+    delete:
+      tags:
+        - BookSuggestions
+      summary: Delete a book suggestion (owner or admin)
+      operationId: deleteBookSuggestion
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: suggestionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Suggestion deleted
+        '403':
+          description: Forbidden
+        '404':
+          description: Suggestion not found
+
+  ###################################################
+  # UPVOTES
+  ###################################################
+  /book-suggestions/{suggestionId}/upvotes:
+    post:
+      tags:
+        - Upvotes
+      summary: Upvote a book suggestion
+      operationId: upvoteSuggestion
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: suggestionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Suggestion upvoted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpvoteResponse'
+        '404':
+          description: Suggestion not found
+
+    delete:
+      tags:
+        - Upvotes
+      summary: Remove an upvote from a book suggestion
+      operationId: removeUpvote
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: suggestionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Upvote removed
+        '404':
+          description: Suggestion not found
+
+  ###################################################
+  # COMMENTS
+  ###################################################
+  /book-suggestions/{suggestionId}/comments:
+    get:
+      tags:
+        - Comments
+      summary: Get all comments for a specific suggestion
+      operationId: listComments
+      parameters:
+        - in: path
+          name: suggestionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of comments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Comment'
+        '404':
+          description: Suggestion not found
+
+    post:
+      tags:
+        - Comments
+      summary: Add a comment to a suggestion
+      operationId: addComment
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: suggestionId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentCreateRequest'
+      responses:
+        '201':
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '404':
+          description: Suggestion not found
+
+  /book-suggestions/{suggestionId}/comments/{commentId}:
+    get:
+      tags:
+        - Comments
+      summary: Get a specific comment
+      operationId: getComment
+      parameters:
+        - in: path
+          name: suggestionId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: commentId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Comment details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '404':
+          description: Comment or suggestion not found
+
+    put:
+      tags:
+        - Comments
+      summary: Update a comment (comment owner or admin)
+      operationId: updateComment
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: suggestionId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: commentId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentUpdateRequest'
+      responses:
+        '200':
+          description: Updated comment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '403':
+          description: Forbidden
+        '404':
+          description: Comment not found
+
+    delete:
+      tags:
+        - Comments
+      summary: Delete a comment (comment owner or admin)
+      operationId: deleteComment
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: suggestionId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: commentId
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Comment deleted
+        '403':
+          description: Forbidden
+        '404':
+          description: Comment not found
+
+  ###################################################
+  # KINDLE / EXTERNAL INTEGRATION
+  ###################################################
+  /kindle-integration:
+    post:
+      tags:
+        - KindleIntegration
+      summary: External endpoint to create a suggestion from a Kindle/ASIN
+      operationId: kindleIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KindleIntegrationRequest'
+      responses:
+        '201':
+          description: Suggestion created via Kindle integration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookSuggestion'
+        '400':
+          description: Missing or invalid data
+
+  ###################################################
+  # NOTIFICATIONS
+  ###################################################
+  /notifications:
+    get:
+      tags:
+        - Notifications
+      summary: Retrieve all notifications for the authenticated user
+      operationId: listNotifications
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of user notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Notification'
+
+  /notifications/{notificationId}:
+    post:
+      tags:
+        - Notifications
+      summary: Mark a notification as read
+      operationId: markNotificationAsRead
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: notificationId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Notification marked as read
+        '404':
+          description: Notification not found
+
+  ###################################################
+  # OPTIONAL: ORIGINAL STORY SUBMISSIONS
+  ###################################################
+  /original-stories:
+    get:
+      tags:
+        - OriginalStories
+      summary: List all original stories (admin/director/producer only, or public - depends on policy)
+      operationId: listOriginalStories
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of original stories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OriginalStory'
+
+    post:
+      tags:
+        - OriginalStories
+      summary: Create a new original story submission
+      operationId: createOriginalStory
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OriginalStoryCreateRequest'
+      responses:
+        '201':
+          description: Original story created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginalStory'
+        '400':
+          description: Invalid data
+
+  /original-stories/{storyId}:
+    get:
+      tags:
+        - OriginalStories
+      summary: Get details of a specific original story
+      operationId: getOriginalStory
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: storyId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Original story details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginalStory'
+        '404':
+          description: Story not found
+
+    put:
+      tags:
+        - OriginalStories
+      summary: Update original story submission (owner or admin)
+      operationId: updateOriginalStory
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: storyId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OriginalStoryUpdateRequest'
+      responses:
+        '200':
+          description: Updated original story
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginalStory'
+        '403':
+          description: Forbidden
+        '404':
+          description: Story not found
+
+    delete:
+      tags:
+        - OriginalStories
+      summary: Delete an original story (owner or admin)
+      operationId: deleteOriginalStory
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: storyId
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Story deleted
+        '403':
+          description: Forbidden
+        '404':
+          description: Story not found
+
+  ###################################################
+  # ADMIN (MODERATION & MANAGEMENT)
+  ###################################################
+  /admin/book-suggestions:
+    get:
+      tags:
+        - Admin
+      summary: List all book suggestions (with extended details, e.g., flagged, etc.)
+      operationId: adminListBookSuggestions
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: A list of all book suggestions (extended admin view)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BookSuggestion'
+
+  /admin/book-suggestions/{suggestionId}/moderate:
+    post:
+      tags:
+        - Admin
+      summary: Moderate or highlight a book suggestion
+      operationId: moderateBookSuggestion
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: suggestionId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModerationRequest'
+      responses:
+        '200':
+          description: Moderation result
+        '404':
+          description: Suggestion not found
+
+  /admin/users:
+    get:
+      tags:
+        - Admin
+      summary: List all users (admin-only; can be combined with /users GET)
+      operationId: adminListUsers
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+
+  /admin/users/{userId}:
+    delete:
+      tags:
+        - Admin
+      summary: Delete a user (admin-only; duplicates /users/{userId} DELETE)
+      operationId: adminDeleteUser
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: User deleted
+        '404':
+          description: User not found
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    ###################################################
+    # AUTH & USER SCHEMAS
+    ###################################################
+    UserRegistrationRequest:
+      type: object
+      required:
+        - email
+        - password
+        - role
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          example: "P@ssword123!"
+        role:
+          type: string
+          enum: [reader, director, admin]
+          example: "reader"
+
+    UserLoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          example: "P@ssword123!"
+
+    AuthResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI..."
+        refreshToken:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI..."
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        role:
+          type: string
+          enum: [reader, director, admin]
+          example: "reader"
+        displayName:
+          type: string
+          example: "John Doe"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UserUpdateRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+          example: "John Doe"
+        role:
+          type: string
+          enum: [reader, director, admin]
+
+    ###################################################
+    # BOOK SUGGESTION SCHEMAS
+    ###################################################
+    BookSuggestion:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "abc1234"
+        title:
+          type: string
+          example: "The Great Gatsby"
+        author:
+          type: string
+          example: "F. Scott Fitzgerald"
+        isbn:
+          type: string
+          example: "9780743273565"
+        coverImageUrl:
+          type: string
+          format: uri
+          example: "https://example.com/covers/gatsby.jpg"
+        synopsis:
+          type: string
+          example: "A novel set in the 1920s about Jay Gatsby..."
+        pitch:
+          type: string
+          example: "This classic explores themes perfect for the big screen..."
+        genre:
+          type: string
+          example: "Drama"
+        upvoteCount:
+          type: integer
+          example: 42
+        createdBy:
+          $ref: '#/components/schemas/User'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    BookSuggestionCreateRequest:
+      type: object
+      required:
+        - title
+        - author
+      properties:
+        title:
+          type: string
+          example: "The Great Gatsby"
+        author:
+          type: string
+          example: "F. Scott Fitzgerald"
+        isbn:
+          type: string
+          example: "9780743273565"
+        coverImageUrl:
+          type: string
+          format: uri
+          example: "https://example.com/covers/gatsby.jpg"
+        synopsis:
+          type: string
+          example: "A novel set in the 1920s..."
+        pitch:
+          type: string
+          example: "It has strong cinematic appeal..."
+        genre:
+          type: string
+          example: "Drama"
+
+    BookSuggestionUpdateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        author:
+          type: string
+        isbn:
+          type: string
+        coverImageUrl:
+          type: string
+          format: uri
+        synopsis:
+          type: string
+        pitch:
+          type: string
+        genre:
+          type: string
+
+    ###################################################
+    # UPVOTE SCHEMAS
+    ###################################################
+    UpvoteResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Upvote registered."
+        currentUpvoteCount:
+          type: integer
+          example: 43
+
+    ###################################################
+    # COMMENT SCHEMAS
+    ###################################################
+    Comment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "comment-abc123"
+        suggestionId:
+          type: string
+          example: "abc1234"
+        content:
+          type: string
+          example: "I love this book. It would be amazing as a movie!"
+        createdBy:
+          $ref: '#/components/schemas/User'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CommentCreateRequest:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          type: string
+          example: "I wholeheartedly agree that this should be a movie adaptation."
+
+    CommentUpdateRequest:
+      type: object
+      properties:
+        content:
+          type: string
+          example: "I changed my mind; let's add more details."
+
+    ###################################################
+    # KINDLE / EXTERNAL INTEGRATION SCHEMAS
+    ###################################################
+    KindleIntegrationRequest:
+      type: object
+      required:
+        - asin
+        - userId
+      properties:
+        asin:
+          type: string
+          example: "B08XYZ123"
+        isbn:
+          type: string
+          example: "9780743273565"
+        title:
+          type: string
+          example: "The Great Gatsby"
+        author:
+          type: string
+          example: "F. Scott Fitzgerald"
+        userId:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        pitch:
+          type: string
+          example: "Suggested via Kindle integration button"
+        genre:
+          type: string
+          example: "Classic"
+
+    ###################################################
+    # NOTIFICATION SCHEMAS
+    ###################################################
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "notif-12345"
+        userId:
+          type: string
+          format: uuid
+        message:
+          type: string
+          example: "Your suggestion received a new comment."
+        isRead:
+          type: boolean
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+
+    ###################################################
+    # OPTIONAL ORIGINAL STORY SCHEMAS
+    ###################################################
+    OriginalStory:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "story-12345"
+        title:
+          type: string
+          example: "My Great Screenplay Idea"
+        synopsis:
+          type: string
+          example: "A short summary of the story..."
+        manuscriptUrl:
+          type: string
+          format: uri
+          example: "https://example.com/uploads/my-story.pdf"
+        createdBy:
+          $ref: '#/components/schemas/User'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    OriginalStoryCreateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          example: "My Great Screenplay Idea"
+        synopsis:
+          type: string
+          example: "A short summary of the story..."
+        manuscriptUrl:
+          type: string
+          format: uri
+
+    OriginalStoryUpdateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        synopsis:
+          type: string
+        manuscriptUrl:
+          type: string
+          format: uri
+
+    ###################################################
+    # ADMIN SCHEMAS
+    ###################################################
+    ModerationRequest:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [highlight, approve, reject, flag]
+          example: "highlight"
+        reason:
+          type: string
+          example: "Featured suggestion for high popularity."

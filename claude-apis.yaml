@@ -1,0 +1,993 @@
+openapi: 3.1.0
+info:
+  title: Book to Movie Suggestion Platform API
+  description: |
+    API for a platform where readers can suggest published books for movie adaptations,
+    and film industry professionals can discover potential adaptation opportunities.
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: api-support@booktomovie.example.com
+
+servers:
+  - url: https://api.booktomovie.example.com/v1
+    description: Production server
+  - url: https://staging-api.booktomovie.example.com/v1
+    description: Staging server
+
+tags:
+  - name: Authentication
+    description: User authentication and authorization endpoints
+  - name: Users
+    description: User profile management
+  - name: BookSuggestions
+    description: Core endpoints for suggesting and managing book adaptation proposals
+  - name: Comments
+    description: Comment management on book suggestions
+  - name: Upvotes
+    description: Upvoting functionality for book suggestions
+  - name: Search
+    description: Search and discovery endpoints
+  - name: Admin
+    description: Administrative functions
+  - name: Notifications
+    description: User notification management
+  - name: Integration
+    description: External integration endpoints (e.g., Kindle)
+  - name: OriginalStories
+    description: Optional endpoints for original story submissions
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token for authentication
+
+  schemas:
+    User:
+      type: object
+      required:
+        - id
+        - email
+        - role
+        - username
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        role:
+          type: string
+          enum: [reader, director, admin]
+        firstName:
+          type: string
+        lastName:
+          type: string
+        bio:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    BookSuggestion:
+      type: object
+      required:
+        - id
+        - title
+        - author
+        - isbn
+        - pitch
+        - suggestedBy
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        author:
+          type: string
+        isbn:
+          type: string
+        asin:
+          type: string
+        coverImageUrl:
+          type: string
+          format: uri
+        synopsis:
+          type: string
+        pitch:
+          type: string
+          description: Why this book would make a good movie
+        genre:
+          type: array
+          items:
+            type: string
+        publicationYear:
+          type: integer
+        pageCount:
+          type: integer
+        suggestedBy:
+          $ref: '#/components/schemas/User'
+        upvoteCount:
+          type: integer
+        status:
+          type: string
+          enum: [pending, approved, featured, archived]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Comment:
+      type: object
+      required:
+        - id
+        - content
+        - userId
+        - suggestionId
+      properties:
+        id:
+          type: string
+          format: uuid
+        content:
+          type: string
+        userId:
+          type: string
+          format: uuid
+        suggestionId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Upvote:
+      type: object
+      required:
+        - userId
+        - suggestionId
+      properties:
+        userId:
+          type: string
+          format: uuid
+        suggestionId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    Notification:
+      type: object
+      required:
+        - id
+        - userId
+        - type
+        - message
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [comment, upvote, status_change, featured]
+        message:
+          type: string
+        read:
+          type: boolean
+          default: false
+        createdAt:
+          type: string
+          format: date-time
+
+    OriginalStory:
+      type: object
+      required:
+        - id
+        - title
+        - synopsis
+        - userId
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        synopsis:
+          type: string
+        genre:
+          type: array
+          items:
+            type: string
+        manuscriptUrl:
+          type: string
+          format: uri
+        userId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [draft, submitted, under_review, approved, rejected]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+
+paths:
+  /auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register a new user
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - username
+                - role
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+                username:
+                  type: string
+                role:
+                  type: string
+                  enum: [reader, director]
+      responses:
+        '201':
+          description: User successfully registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Login user
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Successfully logged in
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /suggestions:
+    post:
+      tags:
+        - BookSuggestions
+      summary: Create a new book suggestion
+      operationId: createBookSuggestion
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - author
+                - isbn
+                - pitch
+              properties:
+                title:
+                  type: string
+                author:
+                  type: string
+                isbn:
+                  type: string
+                asin:
+                  type: string
+                synopsis:
+                  type: string
+                pitch:
+                  type: string
+                genre:
+                  type: array
+                  items:
+                    type: string
+                publicationYear:
+                  type: integer
+                pageCount:
+                  type: integer
+                coverImageUrl:
+                  type: string
+                  format: uri
+      responses:
+        '201':
+          description: Suggestion created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookSuggestion'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      tags:
+        - BookSuggestions
+      summary: List book suggestions
+      operationId: listBookSuggestions
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: genre
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, featured, archived]
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [upvotes, date, title]
+            default: date
+      responses:
+        '200':
+          description: List of suggestions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BookSuggestion'
+                  pagination:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      pages:
+                        type: integer
+                      current:
+                        type: integer
+                      limit:
+                        type: integer
+
+  /suggestions/{id}:
+    get:
+      tags:
+        - BookSuggestions
+      summary: Get a specific book suggestion
+      operationId: getBookSuggestion
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Book suggestion details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookSuggestion'
+        '404':
+          description: Suggestion not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      tags:
+        - BookSuggestions
+      summary: Update a book suggestion
+      operationId: updateBookSuggestion
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                author:
+                  type: string
+                synopsis:
+                  type: string
+                pitch:
+                  type: string
+                genre:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Suggestion updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookSuggestion'
+        '403':
+          description: Forbidden - user not authorized to update
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Suggestion not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /suggestions/{id}/upvote:
+    post:
+      tags:
+        - Upvotes
+      summary: Upvote a suggestion
+      operationId: upvoteSuggestion
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '201':
+          description: Upvote recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Upvote'
+        '409':
+          description: Already upvoted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags:
+        - Upvotes
+      summary: Remove an upvote
+      operationId: removeUpvote
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Upvote removed
+        '404':
+          description: Upvote not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /suggestions/{id}/comments:
+    post:
+      tags:
+        - Comments
+      summary: Add a comment to a suggestion
+      operationId: addComment
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content
+              properties:
+                content:
+                  type: string
+      responses:
+        '201':
+          description: Comment added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '404':
+          description: Suggestion not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      tags:
+        - Comments
+      summary: Get comments for a suggestion
+      operationId: getComments
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: List of comments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Comment'
+                  pagination:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      pages:
+                        type: integer
+                      current:
+                        type: integer
+                      limit:
+                        type: integer
+
+  /integration/kindle:
+    post:
+      tags:
+        - Integration
+      summary: Create suggestion from Kindle
+      operationId: createKindleSuggestion
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - asin
+                - userId
+              properties:
+                asin:
+                  type: string
+                userId:
+                  type: string
+                  format: uuid
+                title:
+                  type: string
+                author:
+                  type: string
+                coverImageUrl:
+                  type: string
+                  format: uri
+                pitch:
+                  type: string
+      responses:
+        '201':
+          description: Suggestion created from Kindle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookSuggestion'
+        '400':
+          description: Invalid input or ASIN not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /search:
+    get:
+      tags:
+        - Search
+      summary: Search suggestions
+      operationId: searchSuggestions
+      parameters:
+        - name: q
+          in: query
+          description: Search query string
+          schema:
+            type: string
+        - name: genre
+          in: query
+          schema:
+            type: string
+        - name: minUpvotes
+          in: query
+          schema:
+            type: integer
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [relevance, upvotes, newest]
+            default: relevance
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BookSuggestion'
+                  pagination:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      pages:
+                        type: integer
+                      current:
+                        type: integer
+                      limit:
+                        type: integer
+
+  /notifications:
+    get:
+      tags:
+        - Notifications
+      summary: Get user notifications
+      operationId: getUserNotifications
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: unreadOnly
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: List of notifications
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notification'
+                  pagination:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      pages:
+                        type: integer
+                      current:
+                        type: integer
+                      limit:
+                        type: integer
+
+  /notifications/{id}/read:
+    put:
+      tags:
+        - Notifications
+      summary: Mark notification as read
+      operationId: markNotificationRead
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Notification marked as read
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '404':
+          description: Notification not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /original-stories:
+    post:
+      tags:
+        - OriginalStories
+      summary: Submit an original story
+      operationId: submitOriginalStory
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - synopsis
+                - manuscriptUrl
+              properties:
+                title:
+                  type: string
+                synopsis:
+                  type: string
+                genre:
+                  type: array
+                  items:
+                    type: string
+                manuscriptUrl:
+                  type: string
+                  format: uri
+      responses:
+        '201':
+          description: Original story submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginalStory'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/suggestions/pending:
+    get:
+      tags:
+        - Admin
+      summary: Get pending suggestions for review
+      operationId: getPendingSuggestions
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: List of pending suggestions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BookSuggestion'
+                  pagination:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      pages:
+                        type: integer
+                      current:
+                        type: integer
+                      limit:
+                        type: integer
+        '403':
+          description: Not authorized as admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/suggestions/{id}/status:
+    put:
+      tags:
+        - Admin
+      summary: Update suggestion status
+      operationId: updateSuggestionStatus
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [pending, approved, featured, archived]
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookSuggestion'
+        '403':
+          description: Not authorized as admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Suggestion not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
